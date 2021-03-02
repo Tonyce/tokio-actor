@@ -1,67 +1,43 @@
-#![allow(unused)]
-use tokio::sync::{mpsc, oneshot};
-
+use actix::prelude::*;
 struct MyActor {
-    receiver: mpsc::Receiver<ActorMessage>,
-    next_id: u32,
+    count: usize,
 }
-enum ActorMessage {
-    GetUniqueId { respond_to: oneshot::Sender<u32> },
+impl Actor for MyActor {
+    type Context = Context<Self>;
 }
 
-impl MyActor {
-    fn new(receiver: mpsc::Receiver<ActorMessage>) -> Self {
-        MyActor {
-            receiver,
-            next_id: 0,
-        }
-    }
-    fn handle_message(&mut self, msg: ActorMessage) {
-        match msg {
-            ActorMessage::GetUniqueId { respond_to } => {
-                self.next_id += 1;
-                let _ = respond_to.send(self.next_id);
-            }
-        }
-    }
+struct Ping(usize);
 
-    async fn run(&mut self) {
-        while let Some(msg) = self.receiver.recv().await {
-            self.handle_message(msg);
-        }
+impl Message for Ping {
+    type Result = usize;
+}
+impl Handler<Ping> for MyActor {
+    type Result = usize;
+
+    fn handle(&mut self, msg: Ping, ctx: &mut Context<Self>) -> Self::Result {
+        self.count += msg.0;
+        self.count
     }
 }
 
-async fn run_my_actor(mut actor: MyActor) {
-    while let Some(msg) = actor.receiver.recv().await {
-        actor.handle_message(msg);
-    }
+#[actix::main]
+async fn main() {
+    // let system = actix::System::with_tokio_rt(|| {
+    //     let rt = tokio::runtime::Runtime::new().unwrap();
+    //     rt
+    // });
+
+    // system.block_on(async {
+    let addr = MyActor { count: 10 }.start();
+
+    // send message and get future for result
+    let _res = addr.send(Ping(10)).await;
+    let res = addr.send(Ping(10)).await;
+
+    // handle() returns tokio handle
+    println!("RESULT: {}", res.unwrap());
+    // System::current().stop();
+    // })
+
+    Actor::create(|ctx: &mut Context<MyActor>| MyActor { count: 10 });
 }
-
-#[derive(Clone)]
-pub struct MyActorHandle {
-    sender: mpsc::Sender<ActorMessage>,
-}
-
-impl MyActorHandle {
-    pub async fn get_unique_id(&self) -> u32 {
-        let (send, recv) = oneshot::channel();
-        let msg = ActorMessage::GetUniqueId { respond_to: send };
-
-        // Ignore send errors. If this send fails, so does the
-        // recv.await below. There's no reason to check the
-        // failure twice.
-        let _ = self.sender.send(msg).await;
-        recv.await.expect("Actor task has been killed")
-    }
-    pub fn new() -> Self {
-        let (sender, receiver) = mpsc::channel(8);
-        let mut actor = MyActor::new(receiver);
-        tokio::spawn(async move { actor.run().await });
-
-        Self { sender }
-    }
-}
-
-#[tokio::main]
-async fn main() {}
