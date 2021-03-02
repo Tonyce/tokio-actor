@@ -6,13 +6,14 @@ use actix::prelude::*;
 
 // use std::net::TcpListener;
 use futures_util::stream::once;
+use futures_util::StreamExt;
 use std::net;
-use tokio::net::TcpListener;
-use tungstenite::server::accept;
+use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::WebSocketStream;
 
 #[derive(Message)]
-#[rtype(result = "Result<bool, std::io::Error>")]
-struct Ping;
+#[rtype(result = "()")]
+struct TcpConnect(pub WebSocketStream<TcpStream>, pub net::SocketAddr);
 
 struct MyActor;
 
@@ -30,40 +31,73 @@ impl Actor for MyActor {
 }
 
 /// Define handler for `Ping` message
-impl Handler<Ping> for MyActor {
-    type Result = Result<bool, std::io::Error>;
+impl Handler<TcpConnect> for MyActor {
+    type Result = ();
 
-    fn handle(&mut self, msg: Ping, ctx: &mut Context<Self>) -> Self::Result {
-        println!("Ping received");
-
-        Ok(true)
+    fn handle(&mut self, msg: TcpConnect, ctx: &mut Context<Self>) -> Self::Result {
+        Box::new(async move {
+            // Some async computation
+            println!("--");
+            let (write, read) = msg.0.split();
+            read.forward(write)
+                .await
+                .expect("Failed to forward message")
+            // ()
+        });
     }
 }
 
 #[actix::main]
 async fn main() {
+    // let system = actix::System::with_tokio_rt(|| tokio::runtime::Runtime::new().unwrap());
+    // system.block_on(async {
+    let actor_addr = MyActor.start();
     let listener = TcpListener::bind("127.0.0.1:2345").await.unwrap();
-
-    MyActor::create(|ctx: &mut Context<MyActor>| {
-        // ctx.add_message_stream(listener.accept
-        // while let Ok((stream, addr)) = listener.accept().await {
-        //     tokio::spawn(handle_connection(state.clone(), stream, addr));
-        // }
-        // ()
-        // });
-        // ctx.add_message_stream(fut)
-        ctx.add_message_stream(once(async move {
-            // listener.accept().await;
-            match listener.accept().await {
-                Ok((_socket, addr)) => println!("new client: {:?}", addr),
-                Err(e) => println!("couldn't get client: {:?}", e),
+    while let Ok((stream, addr)) = listener.accept().await {
+        // match listener.accept().await {
+        // Ok((socket, addr)) => {
+        let ws_stream = tokio_tungstenite::accept_async(stream).await;
+        match ws_stream {
+            Ok(ws) => {
+                println!("ok");
+                actor_addr.do_send(TcpConnect(ws, addr));
             }
-            Ping
-        }));
-        // ctx.add_message_stream(listener.incoming().map_err(|_| ()).map(|st| {
-        //     let addr = st.peer_addr().unwrap();
-        //     // TcpConnect(st, addr)
-        // }));
-        MyActor
-    });
+            Err(e) => {
+                println!("err");
+                // Messages::Pong
+            }
+        };
+    }
+    //     MyActor::create(|ctx: &mut Context<MyActor>| {
+    //         let actor_addr = ctx.address();
+
+    //         ctx.add_message_stream(once(async move {
+
+    //             Messages::Pong
+
+    //             // let t = listener
+    //             //     .accept()
+    //             //     .await
+    //             //     // .map_err(|_| ())
+    //             //     .map(|(stream, _addr)| async { tokio_tungstenite::accept_async(stream).await })
+    //             //     .map(|tt| async {
+    //             //         let c = tt.await;
+    //             //         c
+    //             //     });
+    //             // // .map_err(|_| ());
+
+    //             // if let Ok(s) = t {
+    //             //     let ws = s.await;
+    //             //     match ws {
+    //             //         Ok(ws) => Messages::Ping,
+    //             //         Err(e) => Messages::Pong,
+    //             //     }
+    //             // } else {
+    //             //     Messages::Pong
+    //             // }
+    //         }));
+    //         MyActor
+    //     });
+    // });
+    // system.run().unwrap();
 }
