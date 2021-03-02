@@ -36,6 +36,10 @@ impl Handler<Ping> for MyActor {
 async fn main() {
     // Start MyActor in current thread
 
+    let a = MyActor;
+
+    // MyActor::create(f)
+
     let addr = MyActor.start();
     // Send Ping message.
     // send() message returns Future object, that resolves to message result

@@ -1,43 +1,69 @@
+mod server;
+
+use server::ChatServer;
+
 use actix::prelude::*;
-struct MyActor {
-    count: usize,
-}
+
+// use std::net::TcpListener;
+use futures_util::stream::once;
+use std::net;
+use tokio::net::TcpListener;
+use tungstenite::server::accept;
+
+#[derive(Message)]
+#[rtype(result = "Result<bool, std::io::Error>")]
+struct Ping;
+
+struct MyActor;
+
+// Provide Actor implementation for our actor
 impl Actor for MyActor {
     type Context = Context<Self>;
+
+    fn started(&mut self, ctx: &mut Context<Self>) {
+        println!("Actor is alive");
+    }
+
+    fn stopped(&mut self, ctx: &mut Context<Self>) {
+        println!("Actor is stopped");
+    }
 }
 
-struct Ping(usize);
-
-impl Message for Ping {
-    type Result = usize;
-}
+/// Define handler for `Ping` message
 impl Handler<Ping> for MyActor {
-    type Result = usize;
+    type Result = Result<bool, std::io::Error>;
 
     fn handle(&mut self, msg: Ping, ctx: &mut Context<Self>) -> Self::Result {
-        self.count += msg.0;
-        self.count
+        println!("Ping received");
+
+        Ok(true)
     }
 }
 
 #[actix::main]
 async fn main() {
-    // let system = actix::System::with_tokio_rt(|| {
-    //     let rt = tokio::runtime::Runtime::new().unwrap();
-    //     rt
-    // });
+    let listener = TcpListener::bind("127.0.0.1:2345").await.unwrap();
 
-    // system.block_on(async {
-    let addr = MyActor { count: 10 }.start();
-
-    // send message and get future for result
-    let _res = addr.send(Ping(10)).await;
-    let res = addr.send(Ping(10)).await;
-
-    // handle() returns tokio handle
-    println!("RESULT: {}", res.unwrap());
-    // System::current().stop();
-    // })
-
-    Actor::create(|ctx: &mut Context<MyActor>| MyActor { count: 10 });
+    MyActor::create(|ctx: &mut Context<MyActor>| {
+        // ctx.add_message_stream(listener.accept
+        // while let Ok((stream, addr)) = listener.accept().await {
+        //     tokio::spawn(handle_connection(state.clone(), stream, addr));
+        // }
+        // ()
+        // });
+        // ctx.add_message_stream(fut)
+        ctx.add_message_stream(once(async move {
+            // listener.accept().await;
+            match listener.accept().await {
+                Ok((_socket, addr)) => println!("new client: {:?}", addr),
+                Err(e) => println!("couldn't get client: {:?}", e),
+            }
+            Ping
+        }));
+        // ctx.add_message_stream(listener.incoming().map_err(|_| ()).map(|st| {
+        //     let addr = st.peer_addr().unwrap();
+        //     // TcpConnect(st, addr)
+        // }));
+        MyActor
+    });
 }
